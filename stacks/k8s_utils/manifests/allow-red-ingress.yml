@@ -1,0 +1,17 @@
+kind: NetworkPolicy
+apiVersion: networking.k8s.io/v1
+metadata:
+  namespace: miztiik-automation-ns
+  name: allow-red-ingress-policy
+spec:
+  podSelector:
+    matchLabels:
+      role: red 
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: miztiik-automation-ns
+      ports:
+        - protocol: TCP
+          port: 80

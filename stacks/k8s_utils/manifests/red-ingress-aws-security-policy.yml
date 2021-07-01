@@ -1,0 +1,16 @@
+apiVersion: vpcresources.k8s.aws/v1beta1
+kind: SecurityGroupPolicy
+metadata:
+  name: all-ingress-from-sg-for-red
+  namespace: miztiik-automation-ns
+  labels:
+    dept: engineering
+    team: red-shirts
+    project: eks-security-with-security-groups
+spec:
+  podSelector: 
+    matchLabels:
+      role: red
+  securityGroups:
+    groupIds:
+      - sg-01cfaeca54247312c

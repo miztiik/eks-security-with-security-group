@@ -1,0 +1,16 @@
+apiVersion: vpcresources.k8s.aws/v1beta1
+kind: SecurityGroupPolicy
+metadata:
+  name: deny-ingress-for-blue
+  namespace: miztiik-automation-ns
+  labels:
+    dept: engineering
+    team: red-shirts
+    project: eks-security-with-security-groups
+spec:
+  podSelector: 
+    matchLabels:
+      role: blue
+  securityGroups:
+    groupIds:
+      - sg-09d5535a1ecef3b92

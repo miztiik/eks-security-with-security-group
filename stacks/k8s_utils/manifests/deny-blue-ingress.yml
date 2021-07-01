@@ -1,0 +1,11 @@
+kind: NetworkPolicy
+apiVersion: networking.k8s.io/v1
+metadata:
+  namespace: miztiik-automation-ns
+  name: deny-blue-ingress-policy
+spec:
+  podSelector:
+    matchLabels:
+      role: blue 
+  policyTypes:
+  - Ingress

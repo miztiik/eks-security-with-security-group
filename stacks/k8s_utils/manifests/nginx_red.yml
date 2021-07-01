@@ -1,0 +1,28 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: k-shop-red
+  namespace: nw-policy-01
+  labels:
+    app: k-shop-red
+    owner: miztiik_automation
+    project: eks-security-with-network-policies
+    role: red
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      owner: miztiik_automation
+      role: red
+  template:
+    metadata:
+      labels:
+        owner: miztiik_automation
+        role: red
+    spec:
+      containers:
+        - name: k-shop-red-nginx
+          image: nginx:latest
+          ports:
+            - name: http
+              containerPort: 80
