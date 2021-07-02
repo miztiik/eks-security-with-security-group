@@ -196,7 +196,7 @@ In this blog, I will show how to deploy a security group for pods.
 
       ![Miztiik Automation: Kubernetes Security with AWS Security groups](images/eks_security_with_security_groups_architecture_02.png)
 
-      ````text
+      ```text
       apiVersion: vpcresources.k8s.aws/v1beta1
       kind: SecurityGroupPolicy
       metadata:
@@ -213,12 +213,13 @@ In this blog, I will show how to deploy a security group for pods.
       securityGroups:
             groupIds:
             - sg-0c65a538ef8abf584
+      ```
 
-            Deploy the policy `red-ingress-aws-security-policy.yml`
+      Deploy the policy `red-ingress-aws-security-policy.yml`
 
       ```bash
       kubectl apply -f red-ingress-aws-security-policy.yml
-      ````
+      ```
 
       Similarly, deploy the policy for pods running with the `role:blue`
 
