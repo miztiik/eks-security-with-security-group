@@ -13,4 +13,4 @@ spec:
       role: blue
   securityGroups:
     groupIds:
-      - sg-09d5535a1ecef3b92
+      - sg-0cf34d08d89603a0d

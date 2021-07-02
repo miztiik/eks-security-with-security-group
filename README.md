@@ -12,7 +12,7 @@ By default, network traffic in a Kubernetes cluster can flow freely between pods
 
 ![Miztiik Automation: Kubernetes Security with AWS Security groups](images/eks_security_with_network_policies_eks_security_with_network_policies_architecture_01.png)
 
-Creating restrictions to allow only necessary service-to-service and cluster egress connections decreases the number of potential targets for malicious or misconfigured pods and limits their ability to exploit the cluster resources. AWS Security groups<sup>[1]</sup> for pods integrate Amazon EC2 security groups with Kubernetes pods. You can use Amazon EC2 security groups to define rules that allow inbound and outbound network traffic to and from pods that you deploy to nodes running on many Amazon EC2 instance types and Fargate. There are a number of limitations<sup>[2]</sup> with this approach, until the ecosystem evolves my recommendation is to use Kubernetes network policies to secure pod networks.
+Creating restrictions to allow only necessary service-to-service and cluster egress connections decreases the number of potential targets for malicious or misconfigured pods and limits their ability to exploit the cluster resources. AWS Security groups<sup>[1]</sup> for pods integrate Amazon EC2 security groups with Kubernetes pods. You can use Amazon EC2 security groups to define rules that allow inbound and outbound network traffic to and from pods that you deploy to nodes running on many Amazon EC2 instance types and Fargate. There are a number of limitations<sup>[2]</sup> with this approach, until the ecosystem evolves my recommendation is to use Kubernetes network policies to secure pod networks. For example, `t2` instance types does not not support this feature.
 
 In this blog, I will show how to deploy a security group for pods.
 
@@ -32,8 +32,8 @@ In this blog, I will show how to deploy a security group for pods.
    - Get the application code
 
      ```bash
-     git clone https://github.com/miztiik/eks-security-with-network-policies
-     cd eks-security-with-network-policies
+     git clone https://github.com/miztiik/eks-security-with-security-group
+     cd eks-security-with-security-group
      ```
 
 1. ## 🚀 Prepare the dev environment to run AWS CDK
@@ -84,7 +84,7 @@ In this blog, I will show how to deploy a security group for pods.
      cdk deploy eks-cluster-vpc-stack
      ```
 
-     After successfully deploying the stack, Check the `Outputs` section of the stack.
+     After successfully deploying the stack, Check the `Outputs` section of the stack for the
 
    - **Stack: eks-cluster-stack**
      As we are starting out a new cluster, we will use most default. No logging is configured or any add-ons. The cluster will have the following attributes,
@@ -92,7 +92,7 @@ In this blog, I will show how to deploy a security group for pods.
      - The control pane is launched with public access. _i.e_ the cluster can be access without a bastion host
      - `c_admin` IAM role added to _aws-auth_ configMap to administer the cluster from CLI.
      - One **OnDemand** managed EC2 node group created from a launch template
-       - It create two `t3.medium` instances running `Amazon Linux 2`
+       - It create two `m5.large` instances running `Amazon Linux 2`.
        - Auto-scaling Group with `2` desired instances.
        - The nodes will have a node role attached to them with `AmazonSSMManagedInstanceCore` permissions
        - Kubernetes label `app:miztiik_on_demand_ng`
@@ -118,28 +118,66 @@ In this blog, I will show how to deploy a security group for pods.
 
 1. ## 🔬 Testing the solution
 
-   To start with network policies, we need a plugin to enforce those policies. In this blog we will use Calico<sup>[3]</sup>. All the manifest to deploy the namespace, pods and network policies are available under this directory in this repo `stacks/k8s_utils/sample_manifests/`
+   1. **Enable Pod ENI**
 
-   1. **Install Calico on AWS EKS**
-
-      We are using linux nodes in our cluster, initiate the installation with this command.
+      To use security groups we need enable `CNI plugin` to manage network interfaces for pods by setting the `ENABLE_POD_ENI` variable to `true` in the `aws-node` DaemonSet.
 
       ```bash
-      kubectl apply -f https://raw.githubusercontent.com/aws/amazon-vpc-cni-k8s/master/config/master/calico-operator.yaml
-      kubectl apply -f https://raw.githubusercontent.com/aws/amazon-vpc-cni-k8s/master/config/master/calico-crs.yaml
+      kubectl set env daemonset aws-node -n kube-system ENABLE_POD_ENI=true
       ```
 
-      Confirm that the `calico-system` daemonsets are running,
+      Confirm which of your nodes have `aws-k8s-trunk-eni` set to `true` with the following command, It may take a few minutes for the setting to take effect
 
       ```bash
-      kubectl get daemonset calico-node --namespace calico-system
+      kubectl get nodes -o wide -l vpc.amazonaws.com/has-trunk-attached=true
       ```
 
       Expected output,
 
       ```bash
-      NAME          DESIRED   CURRENT   READY   UP-TO-DATE   AVAILABLE   NODE SELECTOR            AGE
-      calico-node   2         2         2       2            2           kubernetes.io/os=linux   29s
+      NAME                                        STATUS   ROLES    AGE   VERSION              INTERNAL-IP   EXTERNAL-IP     OS-IMAGE         KERNEL-VERSION                CONTAINER-RUNTIME
+      ip-10-10-0-160.eu-west-1.compute.internal   Ready    <none>   12h   v1.20.4-eks-6b7464   10.10.0.160   52.48.144.157   Amazon Linux 2   5.4.117-58.216.amzn2.x86_64   docker://19.3.13
+      ip-10-10-1-102.eu-west-1.compute.internal   Ready    <none>   12h   v1.20.4-eks-6b7464   10.10.1.102   54.76.175.239   Amazon Linux 2   5.4.117-58.216.amzn2.x86_64   docker://19.3.13
+      ```
+
+   1. **Create the security groups**
+
+      We need security groups to exist before deploying our pods, so lets create them. You can find the vpc id from outputs section of this stack `eks-cluster-vpc-stack` and update the variable in the below code segment. We will create two security groups,
+
+      - `sgForBluePods` - Will not have any ingress rule. All Egress is allowed
+      - `sgForRedPods` - Will have ingress rule to allow `ALL` traffic from `sgForBluePods`. All Egress is allowed.
+
+      Note down the security group ids, we will used them to create security policy in the next section.
+
+      ```bash
+      VPC_ID="vpc-0e98e1ec9bf916556"
+
+      # Create Blue Pod Security Group
+      BLUE_POD_SG_ID=$(aws ec2 create-security-group \
+         --group-name "sgForBluePods" \
+         --description "security group for blue pods" \
+         --vpc-id $VPC_ID \
+         --query "GroupId" \
+         --output text)
+
+      echo $BLUE_POD_SG_ID
+
+      # Create Red Pod Security Group
+      RED_POD_SG_ID=$(aws ec2 create-security-group \
+         --group-name "sgForRedPods" \
+         --description "security group for red pods" \
+         --vpc-id $VPC_ID \
+         --query "GroupId" \
+         --output text)
+
+      echo $RED_POD_SG_ID
+
+      # Allow Red SG to receive traffic from Blue
+      aws ec2 authorize-security-group-ingress \
+         --group-id $RED_POD_SG_ID \
+         --protocol -1 \
+         --port -1 \
+         --source-group $BLUE_POD_SG_ID
       ```
 
    1. **Create Namespace**
@@ -148,6 +186,49 @@ In this blog, I will show how to deploy a security group for pods.
 
       ```bash
       kubectl apply -f miztiik-automation-ns.yml
+      ```
+
+   1. **Install EKS Security Group Policy**
+
+      Let us create two EKS security policy, one for each our pods. The manifests are provided in the directory `stacks/k8s_utils/manifests`
+
+      The following is the manifest for policy pods running with the `role:red`
+
+      ````text
+      apiVersion: vpcresources.k8s.aws/v1beta1
+      kind: SecurityGroupPolicy
+      metadata:
+      name: allow-blue-to-red
+      namespace: miztiik-automation-ns
+      labels:
+         dept: engineering
+         team: red-shirts
+         project: eks-security-with-security-groups
+      spec:
+      podSelector:
+            matchLabels:
+            role: red
+      securityGroups:
+            groupIds:
+            - sg-0c65a538ef8abf584
+
+            Deploy the policy `red-ingress-aws-security-policy.yml`
+
+      ```bash
+      kubectl apply -f red-ingress-aws-security-policy.yml
+      ````
+
+      Similarly, deploy the policy for pods running with the `role:blue`
+
+      ```bash
+      kubectl apply -f blue-ingress-aws-security-policy.yml
+      ```
+
+      Expected output,
+
+      ```bash
+      securitygrouppolicy.vpcresources.k8s.aws/allow-blue-to-red created
+      securitygrouppolicy.vpcresources.k8s.aws/deny-ingress-for-blue created
       ```
 
    1. **Deploy Pods**
@@ -172,20 +253,8 @@ In this blog, I will show how to deploy a security group for pods.
 
       ```bash
       NAME          READY   STATUS    RESTARTS   AGE   IP            NODE                                        NOMINATED NODE   READINESS GATES
-      k-shop-blue   1/1     Running   0          8s    10.10.0.210   ip-10-10-0-215.us-east-2.compute.internal   <none>           <none>
-      k-shop-red    1/1     Running   0          91s   10.10.0.194   ip-10-10-0-215.us-east-2.compute.internal   <none>           <none>
-      ```
-
-   1. **Apply Network Policies Pods**
-
-      We will create two policies, one to show _allow_ and another to show _deny_
-
-      - **ALLOW** Policy - `allow-red-ingress-policy`. This policy allows pods with label `role:red` to receive ingress traffic from any pod within the same namespace. <sup><sub>You can extend this to allow ingress only from _blue_ pods or only from certain ip address etc.,</sub></sup>
-      - **DENY** Policy - `deny-blue-ingress-policy`. This policy denys all ingress traffic to pods with label `role:blue`
-
-      ```bash
-      kubectl apply -f allow-red-ingress.yml
-      kubectl apply -f deny-blue-ingress.yml
+      k-shop-blue   1/1     Running   0          62s   10.10.1.74    ip-10-10-1-102.eu-west-1.compute.internal   <none>           <none>
+      k-shop-red    1/1     Running   0          66s   10.10.0.118   ip-10-10-0-160.eu-west-1.compute.internal   <none>           <none>
       ```
 
    1. **Connect to Blue Pod To Test Red Ingress**
@@ -203,14 +272,14 @@ In this blog, I will show how to deploy a security group for pods.
       Expected output,
 
       ```bash
-      root@k-shop-red:/# curl 10.10.0.210
+      root@k-shop-blue:/# curl 10.10.0.118
       <!DOCTYPE html>
       <html>
       <head>
       <title>Welc
       ```
 
-      As you can see, you cannot reach the blue pod. If you create a container in another namespace and try to reach the red pod, it will time out.
+      As you can see, you can reach the red pod. If you create a container in another namespace and try to reach the red pod, it will time out.
 
    1. **Connect to Red Pod To Test Blue Ingress**
 
@@ -227,16 +296,16 @@ In this blog, I will show how to deploy a security group for pods.
       Expected output,
 
       ```bash
-      root@k-shop-red:/# curl 10.10.0.194
-      curl: (7) Failed to connect to 10.10.0.194 port 80: Connection timed out
+      root@k-shop-red:/# curl 10.10.1.74
+      curl: (7) Failed to connect to 10.10.1.74 port 80: Connection timed out
       root@k-shop-red:/#
       ```
 
-      As you can see, you can reach the red pod. If you create a container in another namespace and try to reach the red pod, it will time out.
+      As you can see, you cannot reach the blue pod. If you create a container in another namespace and try to reach the red pod, it will time out.
 
 1. ## 📒 Conclusion
 
-   Here we have demonstrated how to use Kubernetes network policies. These recommendations provide a good starting point, but network policies are much more complicated. If you’re interested in exploring them in more detail, check out these network policy recipes<sup>[4]</sup>.
+   Here we have demonstrated how to use AWS security group to secure pods. These recommendations provide a good starting point, but security policies are much more complicated, Use them after understanding all the limitations that come along with this feature.
 
 1. ## 🧹 CleanUp
 
@@ -262,7 +331,7 @@ In this blog, I will show how to deploy a security group for pods.
 
 ## 📌 Who is using this
 
-This repository aims to show how to use kubernetes network policies to secure AWS EKS to new developers, Solution Architects & Ops Engineers in AWS. Based on that knowledge these Udemy [course #1][102], [course #2][101] helps you build complete architecture in AWS.
+This repository aims to show how to use EKS Security group policies to secure AWS EKS to new developers, Solution Architects & Ops Engineers in AWS. Based on that knowledge these Udemy [course #1][102], [course #2][101] helps you build complete architecture in AWS.
 
 ### 💡 Help/Suggestions or 🐛 Bugs
 
