@@ -4,13 +4,13 @@ The developer at Mystique Unicorn are interested in building their application u
 
 In this application, Kubernetes has been chosen as the platform to host their application producing and consuming events. The producers and consumers are maintained by different teams. They would like to isolate the traffic and have the ability to allow only the necessary traffic. Can you help them achieve this?
 
-![Miztiik Automation: Kubernetes Security with AWS Security groups](images/eks_security_with_network_policies_eks_security_with_network_policies_architecture_00.png)
+![Miztiik Automation: Kubernetes Security with AWS Security groups](images/eks_security_with_security_groups_architecture_00.png)
 
 ## 🎯 Solutions
 
 By default, network traffic in a Kubernetes cluster can flow freely between pods and also leave the cluster network altogether.
 
-![Miztiik Automation: Kubernetes Security with AWS Security groups](images/eks_security_with_network_policies_eks_security_with_network_policies_architecture_01.png)
+![Miztiik Automation: Kubernetes Security with AWS Security groups](images/eks_security_with_security_groups_architecture_01.png)
 
 Creating restrictions to allow only necessary service-to-service and cluster egress connections decreases the number of potential targets for malicious or misconfigured pods and limits their ability to exploit the cluster resources. AWS Security groups<sup>[1]</sup> for pods integrate Amazon EC2 security groups with Kubernetes pods. You can use Amazon EC2 security groups to define rules that allow inbound and outbound network traffic to and from pods that you deploy to nodes running on many Amazon EC2 instance types and Fargate. There are a number of limitations<sup>[2]</sup> with this approach, until the ecosystem evolves my recommendation is to use Kubernetes network policies to secure pod networks. For example, `t2` instance types does not not support this feature.
 
@@ -194,6 +194,8 @@ In this blog, I will show how to deploy a security group for pods.
 
       The following is the manifest for policy pods running with the `role:red`
 
+      ![Miztiik Automation: Kubernetes Security with AWS Security groups](images/eks_security_with_security_groups_architecture_02.png)
+
       ````text
       apiVersion: vpcresources.k8s.aws/v1beta1
       kind: SecurityGroupPolicy
@@ -219,6 +221,8 @@ In this blog, I will show how to deploy a security group for pods.
       ````
 
       Similarly, deploy the policy for pods running with the `role:blue`
+
+      ![Miztiik Automation: Kubernetes Security with AWS Security groups](images/eks_security_with_security_groups_architecture_03.png)
 
       ```bash
       kubectl apply -f blue-ingress-aws-security-policy.yml
@@ -261,7 +265,7 @@ In this blog, I will show how to deploy a security group for pods.
 
       Connect to the Blue pod and try to access red pod using _curl_ or _wget_
 
-      ![Miztiik Automation: Kubernetes Security with AWS Security groups](images/eks_security_with_network_policies_eks_security_with_network_policies_architecture_02.png)
+      ![Miztiik Automation: Kubernetes Security with AWS Security groups](images/eks_security_with_security_groups_architecture_04.png)
 
       ```bash
       kubectl -n miztiik-automation-ns exec --stdin --tty k-shop-blue -- /bin/bash
@@ -285,7 +289,7 @@ In this blog, I will show how to deploy a security group for pods.
 
       Connect to the Red pod and try to access Blue pod using _curl_ or _wget_
 
-      ![Miztiik Automation: Kubernetes Security with AWS Security groups](images/eks_security_with_network_policies_eks_security_with_network_policies_architecture_03.png)
+      ![Miztiik Automation: Kubernetes Security with AWS Security groups](images/eks_security_with_security_groups_architecture_05.png)
 
       ```bash
       kubectl -n miztiik-automation-ns exec --stdin --tty k-shop-red -- /bin/bash
