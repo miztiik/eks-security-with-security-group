@@ -6,5 +6,5 @@ class GlobalArgs():
     OWNER = "MystiqueAutomation"
     REPO_NAME = "eks-security-with-security-groups"
     SOURCE_INFO = f"https://github.com/miztiik/{REPO_NAME}"
-    VERSION = "2020-06-28"
+    VERSION = "2021-06-28"
     MIZTIIK_SUPPORT_EMAIL = ["mystique@example.com", ]
